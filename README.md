@@ -1,120 +1,143 @@
-# Plant Multi-Omics Integration (WallOmicsData)
+# WallOmics Plant Multi-Omics Integration Demo
 
-Analysis pipeline for integrating **transcriptomics, proteomics, and metabolomics**
-data from the Arabidopsis **WallOmicsData** dataset, built as a single, top-to-bottom
-runnable Jupyter notebook.
+A workshop-friendly, end-to-end Jupyter notebook demonstrating multi-omics data
+integration on a **real** *Arabidopsis thaliana* dataset — from raw data download through
+a classical statistical baseline to a graph-based deep learning architecture
+([MOGONET](https://www.nature.com/articles/s41467-021-23774-w)).
 
-## Contents
+No synthetic data or synthetic labels are used anywhere in this project.
 
-| File | Description |
-|---|---|
-| [plant_multiomics_wallomics_preprocessing.ipynb](./plant_multiomics_wallomics_preprocessing.ipynb) | The deliverable notebook. Runs end-to-end with no manual steps. |
-| [generate_wallomics_notebook.py](./generate_wallomics_notebook.py) | Generator script for the **data download & preprocessing** section (cells 0–12). |
-| [generate_baseline_integration_section.py](./generate_baseline_integration_section.py) | Generator script that appends the **baseline PCA + early-fusion integration** section (cells 13–23). |
-| [processed_data/](./processed_data) | Output artifacts written by the notebook (processed matrices, matched sample IDs, figures). |
+## Dataset
 
-The notebook is built programmatically: each generator script uses `nbformat` to
-append a self-contained set of cells to the `.ipynb` file. This keeps notebook
-construction reproducible and diff-friendly. To regenerate the notebook from
-scratch, run the generator scripts in order (see [Regenerating the notebook](#regenerating-the-notebook)).
+**WallomicsData** (Durufle et al., 2020, *Cells* 9(10):2249,
+[doi:10.3390/cells9102249](https://doi.org/10.3390/cells9102249)) — rosette-organ
+transcriptomics, proteomics, and metabolomics profiling of 5 *Arabidopsis* ecotypes grown
+at two temperatures (15°C and 22°C), 3 replicates each (30 samples total). The raw `.rda`
+data and metadata are downloaded programmatically from the dataset's public source and
+cached locally in `wallomics_raw/`.
 
-## Notebook sections
+## Notebook workflow
 
-### 1. Data download & preprocessing
-- Programmatically accesses/loads the WallOmicsData transcriptomics, proteomics,
-  and metabolomics data (falls back to a clearly-labeled synthetic dataset if the
-  real package/source is unavailable in the current environment, so the notebook
-  always runs).
-- Identifies sample IDs per modality and computes the intersection of samples
-  shared across all three.
-- Builds three sample × feature `DataFrame`s aligned to the shared sample set.
-- Reports per-modality sample/feature counts and missing-value percentages.
-- Preprocessing: missing-value imputation, near-zero-variance feature removal,
-  and standardization (z-score) per modality.
-- Saves outputs to `processed_data/`:
-  - `rna_processed.csv`
-  - `proteomics_processed.csv`
-  - `metabolomics_processed.csv`
-  - `sample_metadata.csv`
-  - `matched_sample_ids.txt`
+`plant_multiomics_wallomics_preprocessing.ipynb` runs top-to-bottom with no manual
+intervention and implements three stages:
 
-### 2. Baseline multi-omics integration analysis
-- Loads the four processed files above and verifies sample IDs are identical
-  and identically ordered across modalities.
-- Runs PCA separately per modality (up to 20 components, capped by
-  `min(n_samples - 1, n_features)`).
-- Builds an **early-fusion** representation by concatenating the per-modality
-  PCA matrices (`RNA PCA + Proteomics PCA + Metabolomics PCA`).
-- Computes a 2D embedding (UMAP if available, otherwise a safe fallback to
-  scikit-learn's t-SNE — see [Notes on UMAP](#notes-on-umap)) for RNA,
-  Proteomics, Metabolomics, and the fused representation.
-- Colors the embeddings by a metadata variable when one exists, or by
-  unsupervised KMeans clusters otherwise.
-- Prints a dimension summary table for every representation and saves a
-  4-panel side-by-side figure to `processed_data/baseline_integration_umap.png`.
-- Includes Markdown explaining what PCA does per modality, why it helps with
-  high-dimensional omics data, what early fusion means, and what information
-  can be lost by simple concatenation.
-
-No model training (neural network) is included yet — this section is the
-classical baseline that a later AI integration model will be compared against.
-
-## Setup
-
-A virtual environment (`.venv`) is expected at the repository root.
-
-```powershell
-# Create and activate the venv (if not already present)
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-
-# Install core dependencies
-pip install pandas numpy scikit-learn matplotlib nbformat nbconvert ipykernel
-
-# Optional: UMAP for embeddings (falls back to t-SNE automatically if unavailable)
-pip install umap-learn
+```
+WallOmics raw data (.rda)
+        ↓
+1. Preprocessing   → matched RNA / Proteomics / Metabolomics matrices + real metadata
+        ↓
+2. Statistical baseline   → per-modality PCA, early fusion, UMAP visualization
+        ↓
+3. MOGONET-style integration   → per-modality sample graphs, GCNs, VCDN fusion,
+                                   Temperature (15°C vs 22°C) prediction
 ```
 
-## Running the notebook
+### 1. Preprocessing (`generate_wallomics_notebook.py`)
 
-Open [plant_multiomics_wallomics_preprocessing.ipynb](./plant_multiomics_wallomics_preprocessing.ipynb)
-in VS Code / Jupyter and run all cells, or execute it headlessly:
+- Downloads the real WallomicsData `.rda` files programmatically (with local caching in
+  `wallomics_raw/`) and loads them via `pyreadr`.
+- Loads transcriptomics, proteomics, and metabolomics data and identifies the sample IDs
+  present in each modality.
+- Computes the intersection of samples shared across all three modalities.
+- Builds three matched DataFrames (samples × features) and reports sample counts, feature
+  counts, and missing-value percentages for each modality.
+- Applies modality-appropriate preprocessing: missing-value handling, near-zero-variance
+  feature removal, and standardization.
+- Recovers the **real** experimental metadata (Temperature, Ecotype) from the original
+  WallomicsData source and matches it to the processed sample IDs — no metadata is
+  inferred, randomized, or reconstructed from the molecular data.
+- Saves:
+  - `processed_data/rna_processed.csv`
+  - `processed_data/proteomics_processed.csv`
+  - `processed_data/metabolomics_processed.csv`
+  - `processed_data/sample_metadata.csv`
+  - `processed_data/matched_sample_ids.txt`
 
-```powershell
-.venv\Scripts\python.exe -m nbconvert --to notebook --execute --inplace plant_multiomics_wallomics_preprocessing.ipynb
+### 2. Statistical baseline (`generate_baseline_integration_section.py`)
+
+- Reloads the processed matrices and verifies identical sample ordering across modalities.
+- Applies PCA separately to each modality (10–20 components).
+- Builds an **early-fusion** representation by concatenating the per-modality PCA scores.
+- Embeds each PCA representation (and the fused representation) in 2D with UMAP (falls
+  back to t-SNE if UMAP is unavailable), colored by a metadata variable.
+- Explains in Markdown what PCA does for each modality, why it's useful for
+  high-dimensional omics data, what early fusion means, and what information can be lost
+  by simply concatenating modalities.
+- This is the classical baseline that the MOGONET-style section is compared against — no
+  neural network is involved here.
+
+### 3. MOGONET-style graph-based integration (`generate_mogonet_section.py`)
+
+Demonstrates (not benchmarks) how an established multi-omics AI architecture integrates
+heterogeneous data using per-modality sample-similarity graphs, graph convolutional
+networks (GCNs), and a "VCDN" late-fusion layer, predicting the **real** Temperature
+(15°C vs 22°C) experimental factor.
+
+```
+modality-specific PCA → sample similarity graphs → modality-specific GCNs
+                                                            ↓
+                                                    VCDN multimodal fusion
+                                                            ↓
+                                                  Temperature prediction
 ```
 
-The notebook is designed to run top-to-bottom without manual intervention.
+**Leakage-free protocol.** A stratified train/test split is performed *before* any other
+step. PCA is fit on training samples only (test samples are transformed with the
+already-fitted PCA). k-NN sample-similarity graphs used for training are built from
+training samples only; at inference time, held-out test samples are connected only to
+their nearest *training* neighbors (never to each other), so no test sample or test label
+can influence PCA, feature selection, scaling, or graph construction.
 
-## Regenerating the notebook
+The section includes:
+- Markdown explanations of what the sample graphs represent, why each modality gets its
+  own graph, what one GCN message-passing step does, and what VCDN contributes.
+- Four figures: an example modality-specific sample graph, a simple architecture diagram,
+  baseline-vs-MOGONET performance, and a modality-ablation experiment (removing each omics
+  layer in turn).
+- Comparisons against an RNA-only classifier and a concatenated-PCA classifier baseline.
 
-The notebook is produced by generator scripts rather than hand-edited, so it can
-be rebuilt deterministically:
+> **Note on sample size.** With only 30 real samples, all reported accuracy/F1 numbers are
+> **illustrative** of the architecture running end-to-end on real data with a
+> leakage-free protocol — they are **not** a rigorous performance benchmark, and no method
+> is claimed to be biologically superior on this basis.
 
-```powershell
-.venv\Scripts\python.exe generate_wallomics_notebook.py
-.venv\Scripts\python.exe generate_baseline_integration_section.py
+## Repository structure
+
+```
+plant_multiomics_wallomics_preprocessing.ipynb   # the final notebook (runs top-to-bottom)
+generate_wallomics_notebook.py                   # builds the preprocessing section
+generate_baseline_integration_section.py         # appends the statistical baseline section
+generate_mogonet_section.py                      # appends the MOGONET-style section
+wallomics_raw/                                   # cached raw WallomicsData .rda files
+processed_data/
+  rna_processed.csv                              # processed RNA matrix (samples x genes)
+  proteomics_processed.csv                        # processed proteomics matrix
+  metabolomics_processed.csv                      # processed metabolomics matrix
+  sample_metadata.csv                             # real Temperature/Ecotype metadata
+  matched_sample_ids.txt                          # final matched sample IDs
+  baseline_integration_umap.png                   # baseline UMAP figure
+  mogonet_rna_sample_graph.png                    # MOGONET figure 1
+  mogonet_architecture_diagram.png                # MOGONET figure 2
+  mogonet_vs_baselines.png                        # MOGONET figure 3
+  mogonet_modality_ablation.png                   # MOGONET figure 4
 ```
 
-Each generator is idempotent — it checks for a marker cell before appending, so
-re-running it will not duplicate a section that's already present.
+## Reproducing the notebook
 
-## Notes on UMAP
+```powershell
+python generate_wallomics_notebook.py
+python generate_baseline_integration_section.py
+python generate_mogonet_section.py
+python -m jupyter nbconvert --to notebook --execute --inplace `
+    plant_multiomics_wallomics_preprocessing.ipynb --ExecutePreprocessor.timeout=1200
+```
 
-`umap-learn` depends on `numba`, which loads native DLLs at import time. In some
-locked-down Windows environments (e.g. under an Application Control / AppLocker
-policy), those DLLs are blocked and `import umap` fails. To keep the notebook
-robust in any environment:
-
-- The dependency-check cell probes `import umap` in an **isolated subprocess**
-  first, so a blocked DLL never crashes the main notebook kernel.
-- If the probe fails, the notebook prints a warning and transparently falls
-  back to `sklearn.manifold.TSNE` for all 2D embeddings.
-- The dimension-summary cell reports which embedding method was actually used.
+Each generator script is idempotent: re-running it against a notebook that already
+contains its section is a no-op (it will print `[SKIP]` and leave the notebook unchanged).
+To regenerate from scratch, delete `plant_multiomics_wallomics_preprocessing.ipynb` first.
 
 ## Requirements
 
-- Python 3.10+ (developed against Python 3.14 in `.venv`)
-- pandas, numpy, scikit-learn, matplotlib
-- nbformat, nbconvert, ipykernel (for programmatic notebook generation/execution)
-- umap-learn (optional; t-SNE fallback provided)
+Python 3.10+ with `pandas`, `numpy`, `scikit-learn`, `matplotlib`, `networkx`, `pyreadr`,
+`torch` (CPU build), and `umap-learn` (optional; falls back to t-SNE). Missing packages
+are installed automatically by the notebook cells on first run.
