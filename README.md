@@ -1,11 +1,10 @@
 # WallOmics Plant Multi-Omics Integration Demo
 
-A workshop-friendly, end-to-end Jupyter notebook demonstrating multi-omics data
+An end-to-end Jupyter notebook demonstrating multi-omics data
 integration on a **real** *Arabidopsis thaliana* dataset — from raw data download through
 a classical statistical baseline to a graph-based deep learning architecture
 ([MOGONET](https://www.nature.com/articles/s41467-021-23774-w)).
 
-No synthetic data or synthetic labels are used anywhere in this project.
 
 ## Dataset
 
